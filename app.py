@@ -11,6 +11,7 @@ if sys.platform == 'win32':
 # ------------------------------------------------------------
 
 import pandas as pd
+import html
 
 try:
     import streamlit as st
@@ -256,6 +257,14 @@ def render_recipe_cards(frame: pd.DataFrame, pantry_mode: bool = False) -> None:
 
         image_path = ensure_recipe_image(row)
         image_uri = image_to_data_uri(image_path)
+        # Escape user-visible text to avoid rendering raw HTML inside card
+        ingredients_escaped = html.escape(str(ingredients))
+        flavor_escaped = html.escape(display_name(row.get('flavor_profile', '') or ''))
+        state_escaped = html.escape(display_name(row.get('state', '') or ''))
+        available_text_escaped = html.escape(available_text) if pantry_mode and available_text else ''
+        missing_text_escaped = html.escape(missing_text) if pantry_mode and missing_text else ''
+        matched_terms_escaped = html.escape(str(row.get('matched_terms', 'region fit')))
+
         card_html = f"""
         <div class="recipe-card">
             <div class="recipe-grid">
@@ -273,12 +282,12 @@ def render_recipe_cards(frame: pd.DataFrame, pantry_mode: bool = False) -> None:
                         <span class="pill">Score: {row.get('score', 0.0):.2f}</span>
                         <span class="tag {status_tag}">{status_text}</span>
                     </div>
-                    <p><strong>Ingredients:</strong> {ingredients}</p>
-                    <p><strong>Flavor Profile:</strong> {display_name(row['flavor_profile'])} | <strong>State:</strong> {display_name(row['state'])}</p>
+                    <p><strong>Ingredients:</strong> {ingredients_escaped}</p>
+                    <p><strong>Flavor Profile:</strong> {flavor_escaped} | <strong>State:</strong> {state_escaped}</p>
                     {f'<p><strong>Pantry Coverage:</strong> {available_count}/{total_ingredients} ingredients matched ({coverage:.0%})</p>' if pantry_mode else ''}
-                    {f'<p><strong>Available Ingredients:</strong> {available_text}</p>' if pantry_mode else ''}
-                    {f'<p><strong>Missing Ingredients:</strong> {missing_text}</p>' if pantry_mode else ''}
-                    <p><strong>Why It Fits:</strong> {row.get('matched_terms', 'region fit')}</p>
+                    {f'<p><strong>Available Ingredients:</strong> {available_text_escaped}</p>' if pantry_mode else ''}
+                    {f'<p><strong>Missing Ingredients:</strong> {missing_text_escaped}</p>' if pantry_mode else ''}
+                    <p><strong>Why It Fits:</strong> {matched_terms_escaped}</p>
                 </div>
             </div>
         </div>
@@ -315,6 +324,7 @@ metric_d.metric("Missing Region Rows", summary["missing_region_rows"])
 
 with st.sidebar:
     st.header("Discovery Filters")
+    dark_mode = st.checkbox("Dark mode", value=False, help="Toggle dark UI colors")
     selected_region = st.selectbox("Region", region_options, index=0, format_func=format_region)
     selected_course = st.selectbox("Course", course_options, index=0, format_func=format_choice)
     selected_diet = st.selectbox("Diet", diet_options, index=0, format_func=format_choice)
@@ -349,6 +359,29 @@ with st.sidebar:
                     key = f"pantry_{ingredient.replace(' ', '_').replace('-', '_')}"
                     if cols[index % 2].checkbox(display_name(ingredient), key=key):
                         selected_pantry.append(ingredient)
+
+
+        # Apply dark theme overrides if requested
+        if 'dark_mode' in globals() and dark_mode:
+            st.markdown(
+                """
+                <style>
+                :root {
+                    --bg: #0b1220;
+                    --ink: #e6eef3;
+                    --muted: #98a3ad;
+                    --panel: rgba(20, 23, 26, 0.85);
+                    --line: rgba(255, 255, 255, 0.04);
+                    --accent-soft: rgba(200,111,44,0.12);
+                }
+                .stApp { background: linear-gradient(180deg,#07101a 0%, var(--bg) 100%); color: var(--ink); }
+                .hero { background: linear-gradient(135deg, rgba(10,14,18,0.6), rgba(15,19,22,0.6)); border-color: rgba(255,255,255,0.03); }
+                .section-panel, .recipe-card { background: var(--panel) !important; border-color: var(--line) !important; }
+                .pill { background: rgba(200,111,44,0.12) !important; color: #ffd9b8 !important; }
+                </style>
+                """,
+                unsafe_allow_html=True,
+            )
 
 
 st.subheader("Regional distribution")
