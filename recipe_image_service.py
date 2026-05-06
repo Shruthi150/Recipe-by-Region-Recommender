@@ -9,7 +9,7 @@ from PIL import Image, ImageOps
 
 
 BASE_DIR = Path(__file__).resolve().parent
-IMAGE_CACHE_DIR = BASE_DIR / "assets" / "recipe_images"
+IMAGE_CACHE_DIR = BASE_DIR / "assets" / "pinterest_images"
 IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
