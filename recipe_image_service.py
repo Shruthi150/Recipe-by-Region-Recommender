@@ -3,150 +3,77 @@ from __future__ import annotations
 import base64
 from pathlib import Path
 import re
-from PIL import Image, ImageOps, ImageFilter, ImageDraw
+
 import pandas as pd
+from PIL import Image, ImageOps
+
 
 BASE_DIR = Path(__file__).resolve().parent
-IMAGE_CACHE_DIR = BASE_DIR / "assets" / "pinterest_images"
+IMAGE_CACHE_DIR = BASE_DIR / "assets" / "recipe_images"
 IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
 def slugify(value: str) -> str:
-    """Create a URL-safe slug from a string."""
     value = value.lower().strip()
-    value = "".join(c if c.isalnum() else "-" for c in value)
+    value = "".join(character if character.isalnum() else "-" for character in value)
     value = "-".join(part for part in value.split("-") if part)
     return value[:80] or "recipe"
 
 
 def _clean_text(value: object, default: str = "") -> str:
-    """Clean text values."""
     if pd.isna(value):
         return default
+
     text = str(value).strip()
     if not text or text == "-1" or text.lower() == "nan":
         return default
+
     return text
 
 
-def style_image(file_path: Path, size: tuple[int, int] = (900, 700), border: int = 12) -> Path:
-    """Style an image with border, rounded corners, and consistent sizing."""
-    try:
-        with Image.open(file_path) as image:
-            image = image.convert("RGB")
-            
-            # Resize to fit target size while maintaining aspect ratio
-            fitted = ImageOps.fit(image, size, method=Image.Resampling.LANCZOS)
-            
-            # Add rounded corners mask
-            mask = Image.new('L', size, 0)
-            draw = ImageDraw.Draw(mask)
-            radius = 20  # Rounded corner radius
-            draw.rounded_rectangle([(0, 0), size], radius=radius, fill=255)
-            
-            # Apply mask for rounded corners
-            output = Image.new('RGB', size, (236, 215, 189))  # Border color
-            output.paste(fitted, (0, 0))
-            output.putalpha(mask)
-            
-            # Convert back to RGB for JPEG saving
-            rgb_output = Image.new('RGB', size, (236, 215, 189))
-            rgb_output.paste(output, (0, 0), output)
-            
-            # Add subtle drop shadow effect
-            shadow = Image.new('RGBA', (size[0] + border*2, size[1] + border*2), (0, 0, 0, 0))
-            shadow_draw = ImageDraw.Draw(shadow)
-            shadow_draw.rounded_rectangle(
-                [(border, border), (size[0] + border, size[1] + border)], 
-                radius=radius + 2, 
-                fill=(0, 0, 0, 40)
-            )
-            
-            # Composite shadow and image
-            final = Image.new('RGB', (size[0] + border*2, size[1] + border*2), (243, 237, 232))
-            final.paste(shadow, (0, 0), shadow)
-            final.paste(rgb_output, (border, border))
-            
-            # Save with high quality
-            final.save(file_path, format="JPEG", quality=92, optimize=True)
-            
-    except Exception as e:
-        # Fallback: create a simple styled image
-        create_neutral_placeholder(file_path, size, border)
-    
+def _normalize_ingredient_name(value: object) -> str:
+    return re.sub(r"\s+", " ", str(value).strip().lower())
+
+
+def recipe_image_query(row: pd.Series) -> str:
+    ingredients = row.get("ingredient_list", [])
+    ingredients = [ingredient for ingredient in ingredients if ingredient]
+    top_ingredients = ", ".join(ingredients[:3]) if ingredients else "indian recipe"
+    parts = [row.get("name", ""), row.get("course", ""), row.get("region_clean", ""), top_ingredients]
+    return ", ".join(part for part in parts if part)
+
+
+def style_image(file_path: Path, size: tuple[int, int] = (900, 700), border: int = 10) -> Path:
+    with Image.open(file_path) as image:
+        image = image.convert("RGB")
+        fitted = ImageOps.fit(image, size, method=Image.Resampling.LANCZOS)
+        framed = ImageOps.expand(fitted, border=border, fill=(236, 215, 189))
+        framed.save(file_path, format="JPEG", quality=90)
     return file_path
 
 
 def create_neutral_placeholder(file_path: Path, size: tuple[int, int] = (900, 700), border: int = 10) -> Path:
-    """Create a neutral placeholder image."""
-    # Create gradient background
-    canvas = Image.new("RGB", size, color=(248, 242, 235))
-    
-    # Draw a subtle pattern or text
-    draw = ImageDraw.Draw(canvas)
-    
-    # Draw a subtle border
-    border_width = 2
-    draw.rectangle(
-        [(border_width, border_width), (size[0] - border_width, size[1] - border_width)],
-        outline=(220, 200, 175),
-        width=border_width
-    )
-    
-    # Add food icon/text (optional)
-    from PIL import ImageFont
-    try:
-        # Try to use a default font
-        font = ImageFont.load_default()
-        text = "🍛"
-        # Get text size
-        bbox = draw.textbbox((0, 0), text, font=font)
-        text_width = bbox[2] - bbox[0]
-        text_height = bbox[3] - bbox[1]
-        x = (size[0] - text_width) // 2
-        y = (size[1] - text_height) // 2
-        draw.text((x, y), text, font=font, fill=(200, 180, 150))
-    except:
-        pass
-    
-    # Add border frame
+    canvas = Image.new("RGB", size, color=(243, 237, 232))
     framed = ImageOps.expand(canvas, border=border, fill=(236, 215, 189))
-    framed.save(file_path, format="JPEG", quality=85)
-    
+    framed.save(file_path, format="JPEG", quality=90)
     return file_path
 
 
 def ensure_recipe_image(row: pd.Series, force_refresh: bool = False) -> Path:
-    """Ensure a recipe has an image, creating a placeholder if needed."""
-    
-    # --- FIX: Match filename generated by collect_recipe_images.py ---
     slug = slugify(str(row.get("name", "recipe")))
     file_path = IMAGE_CACHE_DIR / f"{slug}.jpg"
-    # -----------------------------------------------------------------
-    
-    if file_path.exists() and not force_refresh and file_path.stat().st_size > 10000:
+    if file_path.exists() and not force_refresh and file_path.stat().st_size > 0:
         return file_path
-    
+
     return create_neutral_placeholder(file_path)
 
 
 def image_to_data_uri(file_path: Path) -> str:
-    """Convert image to base64 data URI."""
-    try:
-        if not file_path.exists():
-            # Create placeholder if image doesn't exist
-            create_neutral_placeholder(file_path)
-        
-        with open(file_path, "rb") as image_file:
-            encoded_bytes = base64.b64encode(image_file.read()).decode("utf-8")
-        return f"data:image/jpeg;base64,{encoded_bytes}"
-    except Exception:
-        # Fallback: return empty data URI
-        return "data:image/jpeg;base64,"
+    encoded_bytes = base64.b64encode(file_path.read_bytes()).decode("utf-8")
+    return f"data:image/jpeg;base64,{encoded_bytes}"
 
 
 def preload_recipe_images(frame: pd.DataFrame, limit: int | None = None) -> list[Path]:
-    """Preload recipe images."""
     image_paths: list[Path] = []
     rows = frame.head(limit) if limit is not None else frame
     for _, row in rows.iterrows():
