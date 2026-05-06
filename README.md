@@ -28,5 +28,9 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 # Install dependencies
 pip install -r requirements.txt
 
+# Get the images via one of the 2 image collection services
+python collect_recipe_images.py
+python collect_pinterest_images.py
+
 # Run the Streamlit app
 streamlit run app.py
